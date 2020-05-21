@@ -1,0 +1,103 @@
+Analysis of UT61 communications
+==============================
+
+Everything described in this document is implemented in m_ut61.h, so
+that file can be referred to as a working example.
+
+USB cable
+---------
+
+Start logging:
+(This is a HID Set Report request)
+  CT    21 09 00 03 00 00 00 00
+
+To read from the device listen to interrupt transfers from endpoint 82.
+There you'll find 8-byte blobs roughly every 10 ms. I have identified two
+types (They are likely described in the USB HID spec), identified by their
+first byte:
+
+f0 - No data available, the rest of the bytes are 0
+f1 - Here, have a character! Second byte is the character.
+
+If you assemble all the contiguos characters, you will end up with a
+14-character message as described below.
+
+
+RS232 cable
+-----------
+
+The RS232 cable uses 2400 baud with  8 bit characters, no parity and 1
+stop bit. To activate it, the RTS line needs to be cleared and the DTR
+line set.
+
+As the data packets all end with CRLF, you can use line-oriented reading
+from the port.
+
+This is how the Windows application sets things up:
+SET_BAUD_RATE 2400
+CLR_RTS
+SET_DTR
+SET_LINE_CONTROL 8n1
+SET_CHAR EOF:0 ERR:0 BRK:0 EVT:0 XON:11 XOFF:13
+SET_HANDFLOW Shake:1 Replace:0 XonLimit:512 XoffLimit:1
+PURGE TXABORT RXABORT TXCLEAR RXCLEAR
+SET_QUEUE_SIZE InSize: 2048 OutSize: 2048
+SET_TIMEOUTS RI:1 RM:0 RC:1 WM:0 WC:0
+
+Message format
+--------------
+
+0:   [+-]
+1-4: Digits (but see below)
+5:   Space
+6:   Precision
+7-8: Flags
+9:   Prefix and special flags
+10:  Unit
+11:  Relative measurement integer
+12-13: CRLF
+
+The four digits are the measured value with the decimal point removed.
+However, if the meter is overloading, the value "?0:?" is reported.
+
+The precision is a single ASCII digit with the following meaning:
+0: There is no decimal point
+4: There is one decimal digit
+1: There are three decimal digits
+2: There are two decimal digits
+
+The seventh and eighth bytes are a bit field. I have observed these bits:
+0x0001  Bar graph visibility
+0x0002  Data hold
+0x0004  Rel
+0x0008  AC
+0x0010  DC
+0x0020  Autorange
+0x0200  Nano prefix
+0x1000  Min
+0x2000  Max
+
+Byte 9 consists of two 4-bit fields, prefix and special flags.
+The prefix has the following meaning:
+0x00  No prefix (or nano prefix, as per above)
+0x10  Mega (M)
+0x20  Kilo (k)
+0x40  Milli (m)
+0x80  Micro (µ)
+
+The special flags are:
+0x00  Nothing special
+0x02  %
+0x04  Diode
+0x08  Buzzer
+
+The unit byte reads as follows:
+0x00  Percent
+0x04  Fahrad
+0x08  Hz
+0x20  Ohm
+0x40  Ampere
+0x80  Volt
+
+Byte 11 contains a 7-bit signed integer corresponding to the measured
+value in 64ths of the current range.
